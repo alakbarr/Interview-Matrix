@@ -455,7 +455,7 @@ async function toggleLiveInterview() {
 }
 
 async function startLiveSession() {
-  liveState.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+  liveState.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
   await liveState.audioContext.resume();
 
   const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${GEMINI_API_KEY}`;
@@ -464,11 +464,8 @@ async function startLiveSession() {
   liveState.ws.onopen = () => {
     liveState.isConnected = true;
     showToast("Terhubung ke Gemini Live!", "success");
-    
-    // Setup Msg (UPDATE MODEL)
-    liveState.ws.send(JSON.stringify({ setup: { model: GEMINI_MODEL, generationConfig: { responseModalities: ["AUDIO"] } } }));
 
-    // Context Prompt
+    // 1. DEFINISIKAN CONTEXT PROMPT DI AWAL (Pindahkan ke sini)
     const contextPrompt = `
       SYSTEM_ROLE: 
       Anda adalah Senior Assessor (Psikolog) dari SHL, vendor asesmen global yang ditunjuk OJK. 
@@ -483,29 +480,60 @@ async function startLiveSession() {
       1. TUJUAN: Validasi kompetensi (Integritas, Analytical Thinking, Teamwork, Achievement Orientation).
       2. GAYA BICARA: 
          - Gunakan Bahasa Indonesia formal, objektif, dan tenang khas psikolog.
-         - Jangan terlalu ramah/berbunga-bunga, fokus pada penggalian data perilaku.
+         - JANGAN bertele-tele. Langsung ke pertanyaan probing.
       
-      3. TEKNIK PROBING (WAJIB DILAKUKAN):
-         - Gunakan metode STAR (Situation, Task, Action, Result).
-         - JANGAN PERCAYA jawaban general. Jika kandidat bilang "Kami", potong dan tanya "Apa peran SPESIFIK Anda?".
-         - Kejar detail emosi dan pikiran: "Apa yang Anda rasakan saat itu?", "Apa pertimbangan Anda mengambil keputusan itu?".
-         - Cari validitas: "Siapa saksi kejadian ini?", "Kapan tepatnya ini terjadi?".
+      3. TEKNIK PROBING:
+         - Gunakan metode STAR.
+         - Kejar detail: "Apa peran SPESIFIK Anda?", "Apa yang Anda rasakan?".
       
-      4. ATURAN INTERAKSI:
-         - Mulai dengan: "Selamat pagi/siang, saya [Nama AI] dari SHL. Kita akan mendiskusikan pengalaman Anda terkait [Topik]."
-         - Ajukan SATU pertanyaan tajam per giliran.
-         - Jika jawaban kandidat mengambang, kejar terus sampai dapat perilaku nyata.
+      4. INSTRUKSI AWAL:
+         - Sapa kandidat dengan singkat: "Selamat pagi/siang, saya [Nama AI] dari SHL. Mari kita bahas pengalaman Anda terkait [Topik]."
+         - Tunggu respons audio kandidat setelah sapaan.
     `;
-    
-    liveState.ws.send(JSON.stringify({ clientContent: { turns: [{ role: "user", parts: [{ text: contextPrompt }] }], turnComplete: true } }));
-    startRecording();
-  };
 
+    // 2. KIRIM SETUP + SYSTEM INSTRUCTION (Gabungkan di sini)
+    // Ini memberitahu AI "Siapa dirinya" sebelum sesi dimulai
+    const setupMessage = {
+      setup: {
+        model: GEMINI_MODEL,
+        generationConfig: {
+          responseModalities: ["AUDIO"],
+          speechConfig: {
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: "Aoede" } } // Opsional: Pilih suara
+          }
+        },
+        systemInstruction: {
+          parts: [{ text: contextPrompt }] // <--- PROMPT MASUK DI SINI
+        }
+      }
+    };
+
+    liveState.ws.send(JSON.stringify(setupMessage));
+
+    // 3. HAPUS/KOMENTARI BAGIAN "clientContent" YANG LAMA
+    // liveState.ws.send(JSON.stringify({ clientContent: ... })); <--- JANGAN GUNAKAN INI LAGI
+
+    // 4. JIKA INGIN AI MENYAPA DULUAN (Pancingan Awal)
+    // Kirim pesan teks kosong atau pancingan agar AI merespons System Instruction di atas
+    // Beri jeda sedikit (500ms) agar setup diproses dulu
+    setTimeout(() => {
+        liveState.ws.send(JSON.stringify({
+            clientContent: {
+                turns: [{ role: "user", parts: [{ text: "Silakan perkenalkan diri dan mulai wawancara." }] }],
+                turnComplete: true
+            }
+        }));
+    }, 500);
+
+    // 5. MULAI MICROPHONE
+    startRecording();
+};
   liveState.ws.onmessage = async (event) => {
     let data;
     if (event.data instanceof Blob) data = JSON.parse(await event.data.text()); else data = JSON.parse(event.data);
     if (data.serverContent?.modelTurn?.parts) {
       for (const part of data.serverContent.modelTurn.parts) {
+        console.log("Terima Part:", data.serverContent.modelTurn.parts);
         if (part.inlineData) queueAudio(base64ToFloat32(part.inlineData.data));
       }
     }
@@ -524,9 +552,7 @@ function stopLiveSession() {
 }
 
 async function startRecording() {
-  liveState.mediaStream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, sampleRate: 16000 } });
-  
-  // Worklet Processor Injection
+liveState.mediaStream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, sampleRate: 16000, echoCancellation: true, noiseSuppression: true } } ) ;
   const workletCode = `
     class RecorderProcessor extends AudioWorkletProcessor {
       process(inputs, outputs, parameters) {
@@ -554,7 +580,7 @@ async function startRecording() {
   
   liveState.workletNode.port.onmessage = (event) => {
     if (!liveState.isConnected || !liveState.ws || liveState.ws.readyState !== WebSocket.OPEN) return;
-    liveState.ws.send(JSON.stringify({ realtimeInput: { mediaChunks: [{ mimeType: "audio/pcm", data: arrayBufferToBase64(event.data) }] } }));
+    liveState.ws.send(JSON.stringify({ realtimeInput: { mediaChunks: [{ mimeType: "audio/pcm;rate=16000", data: arrayBufferToBase64(event.data) }] } }));
   };
   source.connect(liveState.workletNode);
   liveState.workletNode.connect(liveState.audioContext.destination);
@@ -599,5 +625,6 @@ function arrayBufferToBase64(buffer) {
   for (let i = 0; i < len; i++) { binary += String.fromCharCode(bytes[i]); }
   return window.btoa(binary);
 }
+
 
 
