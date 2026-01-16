@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cognitive Memory Matrix</title>
+    <title>Cognitive Memory Matrix - Vibe Coder Edition</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet">
@@ -52,7 +52,6 @@
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
-          
           <div onclick="showGenerate()" class="group relative bg-white rounded-2xl p-8 border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 cursor-pointer overflow-hidden">
             <div class="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
               <span class="material-icons-outlined text-[8rem] text-indigo-600 -mr-8 -mt-8">add_circle</span>
@@ -75,7 +74,6 @@
             <p class="text-slate-500 text-sm leading-relaxed">Mode <span class="font-bold text-orange-600">Active Recall</span> & Edit Arsip. Uji ingatan atau perbaiki matriks lama Anda.</p>
             <div class="absolute bottom-6 right-6 bg-orange-100 text-orange-700 text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-wide">Recommended</div>
           </div>
-
         </div>
       </div>
 
@@ -147,6 +145,16 @@
              <button onclick="modifyStructure('add-col')" class="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all shadow-sm" title="Tambah Kolom">
                <span class="material-icons-outlined text-sm text-indigo-600">view_column</span> 
                <span class="hidden sm:inline">Kolom</span>
+             </button>
+
+             <div class="w-px h-6 bg-slate-200 mx-2"></div>
+             <button onclick="toggleLiveInterview()" id="btn-live-interview" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 text-xs font-bold transition-colors border border-rose-100 relative overflow-hidden group">
+                <span class="material-icons-outlined text-sm">mic</span>
+                <span id="live-status-text">Live Interview</span>
+                <span id="live-indicator" class="absolute top-1.5 right-1.5 flex h-2 w-2 hidden">
+                  <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                  <span class="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
+                </span>
              </button>
 
              <div class="w-px h-6 bg-slate-200 mx-2"></div>
@@ -251,6 +259,7 @@
       <div class="relative w-24 h-24 mb-6"><div class="absolute inset-0 border-4 border-indigo-100 rounded-full"></div><div class="absolute inset-0 border-4 border-indigo-600 rounded-full border-t-transparent animate-spin"></div><div class="absolute inset-0 flex items-center justify-center"><span class="material-icons-outlined text-indigo-600 text-3xl animate-pulse">psychology</span></div></div>
       <h3 class="text-2xl font-bold text-slate-800 mb-2">Memproses Data</h3><p id="loading-text" class="text-slate-500 font-medium animate-pulse">AI sedang menyusun matriks...</p>
     </div>
+    
     <div id="toast-container" class="fixed bottom-6 right-6 z-[999] flex flex-col gap-3 pointer-events-none"></div>
 
     <script src="app.js"></script>
