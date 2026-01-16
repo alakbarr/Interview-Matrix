@@ -1,21 +1,21 @@
 /**
  * ============================================================================
- * COGNITIVE MATRIX ENGINE - VIBE CODER EDITION (v3.1 Stable)
+ * COGNITIVE MATRIX ENGINE - VIBE CODER EDITION (v3.2 Stable - Live Fix)
  * Backend: Google Apps Script (Headless)
  * AI Engine: Google Gemini Multimodal Live (WebSocket)
+ * Fixes: Sample Rate 16kHz, UI Reset, Race Condition, Echo Cancellation
  * ============================================================================
  */
 
 // --- 1. CONFIGURATION ---
-// Link Backend Google Apps Script Anda (PASTIKAN INI SESUAI DEPLOYMENT ANDA)
+// Link Backend Google Apps Script Anda
 const API_URL = "https://script.google.com/macros/s/AKfycbxqpGjOd079nX9D2BCSpWxFbUtPJRpAHT70SrRxoP8bqwqrSPf1_pvC7bhnb75jx_Q5Yg/exec";
 
-// API Key Gemini (Dapatkan di aistudio.google.com)
-// PERINGATAN: Jangan commit file ini ke repo publik jika berisi key asli!
+// API Key Gemini (Pastikan Key ini valid dan memiliki akses ke Gemini Live)
 const GEMINI_API_KEY = "AIzaSyDyU5PcZyshb5mDQoyyXt7fTcbfEkcLQ3Q"; 
 
-// UPDATE: Menggunakan versi STABLE, bukan Experimental lagi
-const GEMINI_MODEL = "models/gemini-2.5-flash";
+// Model: Menggunakan Flash 2.0 (atau 1.5 Pro/Flash tergantung ketersediaan di region)
+const GEMINI_MODEL = "models/gemini-2.5-flash"; // Pastikan model ini support BidiGenerateContent
 
 // --- 2. GLOBAL STATE ---
 let appState = {
@@ -62,7 +62,6 @@ async function callBackend(action, data = {}, method = 'GET') {
         const params = new URLSearchParams({ action: action, ...data });
         url += `?${params.toString()}`;
     } else {
-        // Menggunakan text/plain untuk menghindari masalah CORS preflight di GAS
         options.body = JSON.stringify({ action: action, ...data });
         options.headers = { "Content-Type": "text/plain;charset=utf-8" };
     }
@@ -421,11 +420,18 @@ function setLoading(isLoading, text="Loading...") {
 }
 
 /* ==========================================================================
-   11. GEMINI LIVE INTERFACE (REAL-TIME WEBSOCKET)
+   11. GEMINI LIVE INTERFACE (FIXED & OPTIMIZED)
    ========================================================================== */
 
 let liveState = {
-  isConnected: false, ws: null, audioContext: null, mediaStream: null, workletNode: null, audioQueue: [], isPlaying: false, nextPlayTime: 0
+  isConnected: false, 
+  ws: null, 
+  audioContext: null, 
+  mediaStream: null, 
+  workletNode: null, 
+  audioQueue: [], 
+  isPlaying: false, 
+  nextPlayTime: 0
 };
 
 async function toggleLiveInterview() {
@@ -435,9 +441,7 @@ async function toggleLiveInterview() {
 
   if (liveState.isConnected) {
     stopLiveSession();
-    btn.className = "flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 text-xs font-bold transition-colors border border-rose-100 relative overflow-hidden group";
-    text.innerText = "Live Interview";
-    indicator.classList.add('hidden');
+    // UI reset handled in stopLiveSession now
   } else {
     if(!appState.data.rows.length) return showToast("Data matriks kosong!", "error");
     if(GEMINI_API_KEY.includes("PASTE")) return showToast("API Key belum diset di app.js!", "error");
@@ -449,12 +453,15 @@ async function toggleLiveInterview() {
       text.innerText = "Listening...";
       indicator.classList.remove('hidden');
     } catch (e) {
-      console.error(e); showToast("Gagal connect: " + e.message, "error"); stopLiveSession();
+      console.error(e); 
+      showToast("Gagal connect: " + e.message, "error"); 
+      stopLiveSession();
     }
   }
 }
 
 async function startLiveSession() {
+  // [FIX] AudioContext harus 16000 Hz untuk kompatibilitas Gemini Live
   liveState.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
   await liveState.audioContext.resume();
 
@@ -463,96 +470,121 @@ async function startLiveSession() {
 
   liveState.ws.onopen = () => {
     liveState.isConnected = true;
-    showToast("Terhubung ke Gemini Live!", "success");
-
-    // 1. DEFINISIKAN CONTEXT PROMPT DI AWAL (Pindahkan ke sini)
+    showToast("Terhubung! Silakan berbicara...", "success");
+    
+    // [FIX] Definisikan Konteks Prompt DI SINI sebagai System Instruction
     const contextPrompt = `
       SYSTEM_ROLE: 
-      Anda adalah Senior Assessor (Psikolog) dari SHL, vendor asesmen global yang ditunjuk OJK. 
-      Tugas Anda adalah menilai kandidat untuk posisi PCAM (Pendidikan Calon Asisten Manajer).
+      Anda adalah Senior Assessor (Psikolog) dari SHL, vendor asesmen global. 
+      Tugas: Menilai kandidat posisi PCAM (Pendidikan Calon Asisten Manajer) OJK.
       
       KONTEKS DATA KANDIDAT:
-      Topik Cerita: ${appState.data.topic}
-      Ringkasan: ${appState.data.summary}
-      Detail Kejadian: ${JSON.stringify(appState.data.rows.map(r => r.cells))}
+      Topik: ${appState.data.topic}
+      Ringkasan: ${appState.data.summary.replace(/<[^>]*>?/gm, '')}
+      Detail Kejadian (Matriks): ${JSON.stringify(appState.data.rows.map(r => r.cells))}
       
       PROTOKOL WAWANCARA (METODE BEI - Behavioral Event Interview):
-      1. TUJUAN: Validasi kompetensi (Integritas, Analytical Thinking, Teamwork, Achievement Orientation).
-      2. GAYA BICARA: 
-         - Gunakan Bahasa Indonesia formal, objektif, dan tenang khas psikolog.
-         - JANGAN bertele-tele. Langsung ke pertanyaan probing.
+      1. SIKAP: Profesional, formal, objektif, sedikit menekan namun sopan.
+      2. TEKNIK: Gunakan STAR (Situation, Task, Action, Result). Kejar detail jika jawaban terlalu umum.
+      3. INTERAKSI: Dengarkan audio user, lalu jawab dengan audio singkat (1-2 kalimat tajam).
       
-      3. TEKNIK PROBING:
-         - Gunakan metode STAR.
-         - Kejar detail: "Apa peran SPESIFIK Anda?", "Apa yang Anda rasakan?".
-      
-      4. INSTRUKSI AWAL:
-         - Sapa kandidat dengan singkat: "Selamat pagi/siang, saya [Nama AI] dari SHL. Mari kita bahas pengalaman Anda terkait [Topik]."
-         - Tunggu respons audio kandidat setelah sapaan.
+      INSTRUKSI AWAL:
+      Jangan langsung bertanya panjang. Sapa dulu: "Selamat pagi, saya [Nama AI] dari tim asesmen. Mari kita validasi pengalaman Anda terkait [Topik]."
     `;
 
-    // 2. KIRIM SETUP + SYSTEM INSTRUCTION (Gabungkan di sini)
-    // Ini memberitahu AI "Siapa dirinya" sebelum sesi dimulai
-    const setupMessage = {
+    // [FIX] Kirim System Instruction saat Setup handshake
+    const setupMsg = {
       setup: {
         model: GEMINI_MODEL,
-        generationConfig: {
+        generationConfig: { 
           responseModalities: ["AUDIO"],
           speechConfig: {
-            voiceConfig: { prebuiltVoiceConfig: { voiceName: "Aoede" } } // Opsional: Pilih suara
+             voiceConfig: { prebuiltVoiceConfig: { voiceName: "Aoede" } } 
           }
         },
         systemInstruction: {
-          parts: [{ text: contextPrompt }] // <--- PROMPT MASUK DI SINI
+          parts: [{ text: contextPrompt }]
         }
       }
     };
 
-    liveState.ws.send(JSON.stringify(setupMessage));
+    liveState.ws.send(JSON.stringify(setupMsg));
 
-    // 3. HAPUS/KOMENTARI BAGIAN "clientContent" YANG LAMA
-    // liveState.ws.send(JSON.stringify({ clientContent: ... })); <--- JANGAN GUNAKAN INI LAGI
-
-    // 4. JIKA INGIN AI MENYAPA DULUAN (Pancingan Awal)
-    // Kirim pesan teks kosong atau pancingan agar AI merespons System Instruction di atas
-    // Beri jeda sedikit (500ms) agar setup diproses dulu
+    // [FIX] Pancingan awal agar AI menyapa
     setTimeout(() => {
-        liveState.ws.send(JSON.stringify({
+         liveState.ws.send(JSON.stringify({
             clientContent: {
-                turns: [{ role: "user", parts: [{ text: "Silakan perkenalkan diri dan mulai wawancara." }] }],
+                turns: [{ role: "user", parts: [{ text: "Halo, saya siap." }] }],
                 turnComplete: true
             }
         }));
     }, 500);
 
-    // 5. MULAI MICROPHONE
+    // Mulai streaming audio dari mic user
     startRecording();
-};
+  };
+
   liveState.ws.onmessage = async (event) => {
-    let data;
-    if (event.data instanceof Blob) data = JSON.parse(await event.data.text()); else data = JSON.parse(event.data);
-    if (data.serverContent?.modelTurn?.parts) {
-      for (const part of data.serverContent.modelTurn.parts) {
-        console.log("Terima Part:", data.serverContent.modelTurn.parts);
-        if (part.inlineData) queueAudio(base64ToFloat32(part.inlineData.data));
+    try {
+      let data;
+      if (event.data instanceof Blob) data = JSON.parse(await event.data.text()); else data = JSON.parse(event.data);
+      
+      if (data.serverContent?.modelTurn?.parts) {
+        for (const part of data.serverContent.modelTurn.parts) {
+          if (part.inlineData) queueAudio(base64ToFloat32(part.inlineData.data));
+        }
       }
+    } catch (e) {
+      console.error("Parse Error:", e);
     }
   };
 
-  liveState.ws.onclose = () => { if(liveState.isConnected) stopLiveSession(); };
+  liveState.ws.onclose = (ev) => { 
+    console.log("WebSocket Closed", ev);
+    if(liveState.isConnected) stopLiveSession(); 
+  };
 }
 
 function stopLiveSession() {
+  console.log("Stopping Session...");
   liveState.isConnected = false;
+  
+  // 1. Clean up WS
   if (liveState.ws) { liveState.ws.close(); liveState.ws = null; }
+  
+  // 2. Clean up Audio Nodes
   if (liveState.mediaStream) { liveState.mediaStream.getTracks().forEach(track => track.stop()); liveState.mediaStream = null; }
   if (liveState.workletNode) { liveState.workletNode.disconnect(); liveState.workletNode = null; }
   if (liveState.audioContext) { liveState.audioContext.close(); liveState.audioContext = null; }
-  liveState.audioQueue = []; liveState.isPlaying = false;
+  
+  // 3. Reset Buffer
+  liveState.audioQueue = []; 
+  liveState.isPlaying = false;
+
+  // 4. [FIX] FORCE RESET UI (Agar tombol tidak macet)
+  const btn = document.getElementById('btn-live-interview');
+  const text = document.getElementById('live-status-text');
+  const indicator = document.getElementById('live-indicator');
+  
+  if (btn && text && indicator) {
+    btn.className = "flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 text-xs font-bold transition-colors border border-rose-100 relative overflow-hidden group";
+    text.innerText = "Live Interview";
+    indicator.classList.add('hidden');
+  }
 }
 
 async function startRecording() {
-liveState.mediaStream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, sampleRate: 16000, echoCancellation: true, noiseSuppression: true } } ) ;
+  // [FIX] Minta browser merekam di 16kHz & aktifkan Echo Cancellation
+  liveState.mediaStream = await navigator.mediaDevices.getUserMedia({ 
+    audio: { 
+      channelCount: 1, 
+      sampleRate: 16000,
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true
+    } 
+  });
+  
   const workletCode = `
     class RecorderProcessor extends AudioWorkletProcessor {
       process(inputs, outputs, parameters) {
@@ -580,12 +612,24 @@ liveState.mediaStream = await navigator.mediaDevices.getUserMedia({ audio: { cha
   
   liveState.workletNode.port.onmessage = (event) => {
     if (!liveState.isConnected || !liveState.ws || liveState.ws.readyState !== WebSocket.OPEN) return;
-    liveState.ws.send(JSON.stringify({ realtimeInput: { mediaChunks: [{ mimeType: "audio/pcm;rate=16000", data: arrayBufferToBase64(event.data) }] } }));
+    
+    // [FIX] Kirim dengan header mimeType yang spesifik (rate=16000)
+    const payload = { 
+      realtimeInput: { 
+        mediaChunks: [{ 
+          mimeType: "audio/pcm;rate=16000", 
+          data: arrayBufferToBase64(event.data) 
+        }] 
+      } 
+    };
+    liveState.ws.send(JSON.stringify(payload));
   };
+
   source.connect(liveState.workletNode);
   liveState.workletNode.connect(liveState.audioContext.destination);
 }
 
+// --- AUDIO HELPERS ---
 function queueAudio(pcmFloat32) {
   liveState.audioQueue.push(pcmFloat32);
   if (!liveState.isPlaying) playNextChunk();
@@ -604,7 +648,7 @@ function playNextChunk() {
   const startTime = Math.max(currentTime, liveState.nextPlayTime);
   source.start(startTime);
   liveState.nextPlayTime = startTime + buffer.duration;
-  setTimeout(playNextChunk, (buffer.duration * 1000) - 10); 
+  source.onended = () => { setTimeout(playNextChunk, 10); };
 }
 
 function base64ToFloat32(base64) {
@@ -625,6 +669,3 @@ function arrayBufferToBase64(buffer) {
   for (let i = 0; i < len; i++) { binary += String.fromCharCode(bytes[i]); }
   return window.btoa(binary);
 }
-
-
-
