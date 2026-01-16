@@ -12,10 +12,10 @@ const API_URL = "https://script.google.com/macros/s/AKfycbxqpGjOd079nX9D2BCSpWxF
 
 // API Key Gemini (Dapatkan di aistudio.google.com)
 // PERINGATAN: Jangan commit file ini ke repo publik jika berisi key asli!
-const GEMINI_API_KEY = "PASTE_API_KEY_GEMINI_ANDA_DISINI"; 
+const GEMINI_API_KEY = "AIzaSyDyU5PcZyshb5mDQoyyXt7fTcbfEkcLQ3Q"; 
 
 // UPDATE: Menggunakan versi STABLE, bukan Experimental lagi
-const GEMINI_MODEL = "models/gemini-2.0-flash";
+const GEMINI_MODEL = "models/gemini-2.5-flash";
 
 // --- 2. GLOBAL STATE ---
 let appState = {
@@ -585,3 +585,4 @@ function arrayBufferToBase64(buffer) {
   for (let i = 0; i < len; i++) { binary += String.fromCharCode(bytes[i]); }
   return window.btoa(binary);
 }
+
